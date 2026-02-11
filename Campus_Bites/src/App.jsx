@@ -16,13 +16,18 @@ const CLOSE_TIME = { hour: 19, minute: 30 };
 
 export default function App() {
   // --- Local State ---
+  const [currentUser, setCurrentUser] = useState(() => {
+    const savedUser = localStorage.getItem('cb_user_auth');
+    return savedUser ? JSON.parse(savedUser) : null;
+  });
+
   const [cart, setCart] = useState([]);
   const [orders, setOrders] = useState(() => {
-    const saved = localStorage.getItem('cb_orders_v3');
+    const saved = localStorage.getItem('cb_orders_v4');
     return saved ? JSON.parse(saved) : [];
   });
   const [inquiries, setInquiries] = useState(() => {
-    const saved = localStorage.getItem('cb_inquiries_v3');
+    const saved = localStorage.getItem('cb_inquiries_v4');
     return saved ? JSON.parse(saved) : [];
   });
   
@@ -38,6 +43,23 @@ export default function App() {
   // Live Status State
   const [isCanteenOpen, setIsCanteenOpen] = useState(true);
 
+  // --- Auth Handlers ---
+  const handleAuth = (e) => {
+    e.preventDefault();
+    const name = e.target.elements.userName.value;
+    const uid = e.target.elements.userUid.value;
+    const userData = { name, uid };
+    setCurrentUser(userData);
+    localStorage.setItem('cb_user_auth', JSON.stringify(userData));
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    localStorage.removeItem('cb_user_auth');
+    setCart([]);
+    setActiveOrderId(null);
+  };
+
   // --- Check Canteen Hours ---
   useEffect(() => {
     const checkStatus = () => {
@@ -49,20 +71,29 @@ export default function App() {
     };
 
     checkStatus();
-    const timer = setInterval(checkStatus, 60000); // Check every minute
+    const timer = setInterval(checkStatus, 60000);
     return () => clearInterval(timer);
   }, []);
 
   // Sync to LocalStorage
   useEffect(() => {
-    localStorage.setItem('cb_orders_v3', JSON.stringify(orders));
+    localStorage.setItem('cb_orders_v4', JSON.stringify(orders));
   }, [orders]);
 
   useEffect(() => {
-    localStorage.setItem('cb_inquiries_v3', JSON.stringify(inquiries));
+    localStorage.setItem('cb_inquiries_v4', JSON.stringify(inquiries));
   }, [inquiries]);
 
   const activeOrderData = orders.find(o => o.id === activeOrderId);
+
+  // --- Choice Handlers ---
+  const choosePath = (delivery) => {
+    setIsDelivery(delivery);
+    window.location.href = '#menu';
+    if (delivery) {
+      setTimeout(() => setIsCartOpen(true), 500);
+    }
+  };
 
   // --- Cart Actions ---
   const addToCart = (item) => {
@@ -97,11 +128,13 @@ export default function App() {
 
     const newOrder = {
       id: orderId,
+      studentName: currentUser.name,
+      studentUid: currentUser.uid,
       token: "CB-" + Math.floor(100 + Math.random() * 900),
       items: cart.map(i => `${i.qty}x ${i.name}`).join(', '),
       total: `₹${(cartTotal + (isDelivery ? 20 : 0)).toFixed(2)}`,
       status: 'received',
-      type: isDelivery ? 'Delivery' : 'Pickup',
+      type: isDelivery ? 'Delivery' : 'Dine-in (Pickup)',
       location: isDelivery ? deliveryLocation : 'Counter 01',
       estimatedTime: estimatedMinutes,
       createdAt: new Date().toISOString()
@@ -114,7 +147,6 @@ export default function App() {
     setDeliveryLocation("");
     setIsDelivery(false);
 
-    // Automation: Move to "Preparing" after 3 seconds
     setTimeout(() => {
       setOrders(current => 
         current.map(o => o.id === orderId ? { ...o, status: 'preparing' } : o)
@@ -127,7 +159,8 @@ export default function App() {
     const form = e.target;
     const newInq = {
       id: Date.now().toString(),
-      name: form.elements['inq-name'].value,
+      studentName: currentUser.name,
+      studentUid: currentUser.uid,
       email: form.elements['inq-email'].value,
       message: form.elements['inq-msg'].value,
       createdAt: new Date().toISOString()
@@ -151,6 +184,34 @@ export default function App() {
     return "step";
   };
 
+  // If no user is logged in, show Auth Screen
+  if (!currentUser) {
+    return (
+      <div className="auth-container">
+        <style>{`
+          .auth-container { height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #fff5f6 0%, #fef9f1 100%); font-family: 'Segoe UI', sans-serif; }
+          .auth-card { background: white; padding: 40px; border-radius: 24px; box-shadow: 0 15px 35px rgba(214, 51, 132, 0.1); width: 90%; max-width: 400px; text-align: center; }
+          .auth-card h1 { color: #d63384; margin-bottom: 10px; font-weight: 800; }
+          .auth-card p { color: #888; margin-bottom: 30px; font-size: 0.9rem; }
+          .auth-input { width: 100%; padding: 15px; margin-bottom: 15px; border-radius: 12px; border: 1px solid #eee; outline: none; box-sizing: border-box; transition: 0.3s; }
+          .auth-input:focus { border-color: #d63384; box-shadow: 0 0 0 4px rgba(214, 51, 132, 0.1); }
+          .auth-btn { width: 100%; padding: 15px; border-radius: 12px; border: none; background: #a02050; color: white; font-weight: 700; cursor: pointer; transition: 0.3s; }
+          .auth-btn:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(160, 32, 80, 0.3); }
+        `}</style>
+        <div className="auth-card">
+          <h1>CAMPUS BITES.</h1>
+          <p>Please authenticate to access the canteen</p>
+          <form onSubmit={handleAuth}>
+            <input name="userName" className="auth-input" required placeholder="Enter Full Name" />
+            <input name="userUid" className="auth-input" required placeholder="Enter College UID" />
+            <button type="submit" className="auth-btn">Enter Canteen</button>
+          </form>
+          <div style={{ marginTop: '20px', fontSize: '0.7rem', color: '#ccc' }}>Authorized Student Access Only</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="app-root">
       <style>{`
@@ -171,11 +232,22 @@ export default function App() {
         .dot.open { background: var(--green); box-shadow: 0 0 8px var(--green); }
         .dot.closed { background: var(--red); box-shadow: 0 0 8px var(--red); }
 
+        .user-nav-info { display: flex; align-items: center; gap: 15px; font-size: 0.85rem; }
+        .logout-btn { background: none; border: 1px solid #ddd; padding: 5px 10px; border-radius: 8px; cursor: pointer; color: #888; font-size: 0.75rem; }
+        .logout-btn:hover { color: var(--red); border-color: var(--red); }
+
         /* Hero */
-        .hero { display: flex; padding: 60px 5%; align-items: center; gap: 40px; min-height: 60vh; }
+        .hero { display: flex; padding: 60px 5%; align-items: center; gap: 40px; min-height: 70vh; }
         .hero-content h1 { font-size: 3.5rem; line-height: 1.1; margin-bottom: 20px; color: #2d2d2d; }
         .hero-content span { color: var(--accent); }
         .hero-img { max-width: 100%; border-radius: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); transform: rotate(2deg); }
+        
+        .hero-actions { display: flex; gap: 15px; margin-top: 30px; flex-wrap: wrap; }
+        .hero-btn { flex: 1; min-width: 200px; padding: 20px; border-radius: 15px; border: 2px solid transparent; cursor: pointer; transition: 0.3s; text-align: center; background: white; box-shadow: 0 5px 15px rgba(0,0,0,0.05); }
+        .hero-btn h4 { margin: 0 0 5px; color: var(--dark-pink); font-size: 1.1rem; }
+        .hero-btn p { margin: 0; font-size: 0.85rem; color: #888; }
+        .hero-btn:hover { border-color: var(--accent); transform: translateY(-3px); }
+        .hero-btn.closed { opacity: 0.6; cursor: not-allowed; }
 
         /* Grid */
         .section-title { text-align: center; margin: 60px 0 40px; }
@@ -217,6 +289,7 @@ export default function App() {
 
         @media (max-width: 768px) {
           .hero { flex-direction: column; text-align: center; }
+          .hero-content h1 { font-size: 2.8rem; }
           .contact-hub { flex-direction: column; padding: 40px 5%; }
         }
       `}</style>
@@ -226,9 +299,14 @@ export default function App() {
         <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
           <div className="status-badge">
             <div className={`dot ${isCanteenOpen ? 'open' : 'closed'}`}></div>
-            {isCanteenOpen ? "Canteen Open" : "Canteen Closed"}
+            {isCanteenOpen ? "Open" : "Closed"}
           </div>
-          <a href="#menu" style={{ textDecoration: 'none', color: 'var(--text)', fontWeight: 600 }}>Menu</a>
+          
+          <div className="user-nav-info">
+             <span>Hi, <strong>{currentUser.name}</strong></span>
+             <button className="logout-btn" onClick={handleLogout}>Logout</button>
+          </div>
+
           <div onClick={() => setIsCartOpen(true)} style={{ cursor: 'pointer', background: 'var(--primary)', padding: '10px 20px', borderRadius: '30px', fontWeight: 700 }}>
             Tray ({cart.reduce((a, c) => a + c.qty, 0)})
           </div>
@@ -237,11 +315,31 @@ export default function App() {
 
       <header className="hero">
         <div style={{ flex: 1 }}>
-          <h1>Freshly Made, <br/><span>Loved Daily.</span></h1>
-          <p>Skip the queue or have it delivered to your classroom. Real-time pre-ordering for a faster campus life.</p>
-          <button className="btn btn-primary" onClick={() => window.location.href='#menu'} disabled={!isCanteenOpen}>
-            {isCanteenOpen ? "Order Now" : "Closed - Opens at 08:30 AM"}
-          </button>
+          <h1>Welcome back, <br/><span>{currentUser.name.split(' ')[0]}!</span></h1>
+          <p>Skip the long queues and pre-order your favorite campus meals. authenticated student access enabled.</p>
+          
+          <div className="hero-actions">
+            <div 
+              className={`hero-btn ${!isCanteenOpen ? 'closed' : ''}`} 
+              onClick={() => isCanteenOpen && choosePath(false)}
+            >
+              <h4>🏪 Dine-in / Pickup</h4>
+              <p>Skip the line, grab & go</p>
+            </div>
+            <div 
+              className={`hero-btn ${!isCanteenOpen ? 'closed' : ''}`} 
+              onClick={() => isCanteenOpen && choosePath(true)}
+            >
+              <h4>🚴 Campus Delivery</h4>
+              <p>To your block (+₹20)</p>
+            </div>
+          </div>
+          
+          {!isCanteenOpen && (
+             <p style={{ marginTop: '20px', color: 'var(--red)', fontWeight: 700 }}>
+               ⚠️ Canteen is currently closed. We'll be back at 08:30 AM!
+             </p>
+          )}
         </div>
         <div style={{ flex: 1, textAlign: 'center' }}>
           <img className="hero-img" src="https://images.unsplash.com/photo-1509440159596-0249088772ff?w=600" alt="Fresh Bakery" />
@@ -271,20 +369,20 @@ export default function App() {
       <section id="contact" style={{ display: 'flex', padding: '80px 5%', gap: '50px', background: 'white', marginTop: '60px' }} className="contact-hub">
         <div style={{ flex: 1 }}>
           <h2 style={{ fontSize: '2rem' }}>Contact Info</h2>
-          <p style={{ color: '#888', margin: '20px 0' }}>Located in the heart of the campus. For bulk student orders or event inquiries, feel free to reach out.</p>
+          <p style={{ color: '#888', margin: '20px 0' }}>Authorized portal for student inquiries. For club events or feedback, reach out to the canteen manager.</p>
           <div style={{ lineHeight: 2.2 }}>
-            <div><strong>📍 Location:</strong> Main Block, Ground Floor</div>
-            <div><strong>📞 Phone:</strong> +91 98765 43210</div>
-            <div><strong>⏰ Hours:</strong> 08:30 AM - 07:30 PM</div>
+            <div><strong>📍 Campus Location:</strong> Main Block, Ground Floor</div>
+            <div><strong>📞 Help Desk:</strong> +91 98765 43210 (Ext: 4055)</div>
+            <div><strong>⏰ Service Hours:</strong> 08:30 AM - 07:30 PM</div>
           </div>
         </div>
         <form onSubmit={handleInquiry} style={{ flex: 1, background: '#fdf2f4', padding: '30px', borderRadius: '20px' }}>
-          <h3 style={{ marginBottom: '20px' }}>Send an Inquiry</h3>
-          <input name="inq-name" required placeholder="Name" style={{ width: '100%', padding: '12px', marginBottom: '10px', border: '1px solid #ddd', borderRadius: '8px' }} />
+          <h3 style={{ marginBottom: '20px' }}>Manager Inquiry</h3>
+          <div style={{ marginBottom: '10px', fontSize: '0.8rem', color: '#888' }}>Sending as: {currentUser.name} ({currentUser.uid})</div>
           <input name="inq-email" type="email" required placeholder="College Email" style={{ width: '100%', padding: '12px', marginBottom: '10px', border: '1px solid #ddd', borderRadius: '8px' }} />
-          <textarea name="inq-msg" required rows="4" placeholder="Your Message" style={{ width: '100%', padding: '12px', border: '1px solid #ddd', borderRadius: '8px' }}></textarea>
-          <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '10px' }}>Send</button>
-          {inquirySuccess && <p style={{ color: 'green', fontWeight: 700, marginTop: '10px', textAlign: 'center' }}>✓ Inquiry sent!</p>}
+          <textarea name="inq-msg" required rows="4" placeholder="How can we assist you?" style={{ width: '100%', padding: '12px', border: '1px solid #ddd', borderRadius: '8px' }}></textarea>
+          <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '10px' }}>Send Message</button>
+          {inquirySuccess && <p style={{ color: 'green', fontWeight: 700, marginTop: '10px', textAlign: 'center' }}>✓ Message sent!</p>}
         </form>
       </section>
 
@@ -295,7 +393,6 @@ export default function App() {
           <span onClick={() => setIsCartOpen(false)} style={{ cursor: 'pointer', fontSize: '1.5rem' }}>✕</span>
         </div>
 
-        {/* Delivery / Pickup Toggle */}
         <div className="option-toggle">
           <button className={`opt-btn ${!isDelivery ? 'active' : ''}`} onClick={() => setIsDelivery(false)}>Pickup</button>
           <button className={`opt-btn ${isDelivery ? 'active' : ''}`} onClick={() => setIsDelivery(true)}>Delivery</button>
@@ -321,7 +418,7 @@ export default function App() {
               <div>
                 <div style={{ fontWeight: 700 }}>{item.name}</div>
                 <small>₹{item.price} each</small><br/>
-                <button className="btn-remove" onClick={() => removeFromCart(item.id)}>Edit: Remove</button>
+                <button className="btn-remove" onClick={() => removeFromCart(item.id)}>Remove</button>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <button onClick={() => changeQty(item.id, -1)} style={{ width: '25px', height: '25px', borderRadius: '50%', border: '1px solid #eee' }}>-</button>
@@ -347,7 +444,7 @@ export default function App() {
             onClick={handlePlaceOrder} 
             disabled={cart.length === 0 || !isCanteenOpen}
           >
-            {isCanteenOpen ? "Place Order" : "Canteen Closed"}
+            {isCanteenOpen ? "Place Order" : "Closed"}
           </button>
         </div>
       </div>
@@ -362,7 +459,7 @@ export default function App() {
             <div className="steps">
               <div className={getStepClass(activeOrderData.status, 'received')}>1<div className="step-label">Received</div></div>
               <div className={getStepClass(activeOrderData.status, 'preparing')}>2<div className="step-label">Preparing</div></div>
-              <div className={getStepClass(activeOrderData.status, 'ready')}>3<div className="step-label">{activeOrderData.type === 'Delivery' ? 'Out for Delivery' : 'Ready'}</div></div>
+              <div className={getStepClass(activeOrderData.status, 'ready')}>3<div className="step-label">{activeOrderData.type === 'Delivery' ? 'In Transit' : 'Ready'}</div></div>
             </div>
 
             <div className="timer-badge">
@@ -370,7 +467,7 @@ export default function App() {
             </div>
 
             <p style={{ textAlign: 'left', background: '#f9f9f9', padding: '15px', borderRadius: '12px', fontSize: '0.85rem', marginTop: '20px' }}>
-              <strong>Type:</strong> {activeOrderData.type}<br/>
+              <strong>Student:</strong> {activeOrderData.studentName} ({activeOrderData.studentUid})<br/>
               <strong>Location:</strong> {activeOrderData.location}<br/>
               <strong>Items:</strong> {activeOrderData.items}
             </p>
@@ -389,12 +486,13 @@ export default function App() {
           </div>
           <h3>Live Orders</h3>
           <table>
-            <thead><tr><th>Token</th><th>Items</th><th>Type / Location</th><th>Total</th><th>Status</th></tr></thead>
+            <thead><tr><th>Token</th><th>Student Info</th><th>Items</th><th>Type / Location</th><th>Total</th><th>Status</th></tr></thead>
             <tbody>
-              {orders.length === 0 ? <tr><td colSpan="5" style={{ textAlign: 'center', padding: '20px' }}>No orders yet.</td></tr> : orders.map(o => (
+              {orders.length === 0 ? <tr><td colSpan="6" style={{ textAlign: 'center', padding: '20px' }}>No orders yet.</td></tr> : orders.map(o => (
                 <tr key={o.id}>
                   <td style={{ fontWeight: 800, color: 'var(--accent)' }}>{o.token}</td>
-                  <td style={{ maxWidth: '200px' }}>{o.items}</td>
+                  <td><strong>{o.studentName}</strong><br/><small>{o.studentUid}</small></td>
+                  <td style={{ maxWidth: '150px' }}>{o.items}</td>
                   <td>
                     <strong>{o.type}</strong><br/>
                     <small style={{ color: '#888' }}>{o.location}</small>
@@ -404,7 +502,7 @@ export default function App() {
                     <select value={o.status} onChange={(e) => updateStatus(o.id, e.target.value)} style={{ padding: '8px', borderRadius: '8px' }}>
                       <option value="received">Received</option>
                       <option value="preparing">Preparing</option>
-                      <option value="ready">{o.type === 'Delivery' ? 'Out for Delivery' : 'Ready to Collect'}</option>
+                      <option value="ready">{o.type === 'Delivery' ? 'In Transit' : 'Ready to Collect'}</option>
                     </select>
                   </td>
                 </tr>
@@ -413,10 +511,15 @@ export default function App() {
           </table>
           <h3 style={{ marginTop: '40px' }}>Student Inquiries</h3>
           <table>
-            <thead><tr><th>Name</th><th>Email</th><th>Message</th></tr></thead>
+            <thead><tr><th>Student Name</th><th>UID</th><th>Email</th><th>Message</th></tr></thead>
             <tbody>
               {inquiries.map(i => (
-                <tr key={i.id}><td>{i.name}</td><td>{i.email}</td><td>{i.message}</td></tr>
+                <tr key={i.id}>
+                  <td><strong>{i.studentName}</strong></td>
+                  <td>{i.studentUid}</td>
+                  <td>{i.email}</td>
+                  <td>{i.message}</td>
+                </tr>
               ))}
             </tbody>
           </table>
