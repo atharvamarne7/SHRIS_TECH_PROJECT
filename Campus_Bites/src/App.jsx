@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
 
 const MENU_ITEMS = [
-  { id: 1, name: "Classic Butter Croissant", price: 45, icon: "🥐", cat: "Pastry" },
-  { id: 2, name: "Strawberry Cupcake", price: 65, icon: "🧁", cat: "Sweets" },
-  { id: 3, name: "Artisan Sourdough", price: 120, icon: "🍞", cat: "Breads" },
+  { id: 1, name: "Classic Butter Croissant", price: 45, icon: "🥐", cat: "Pastry", special: true },
+  { id: 2, name: "Strawberry Cupcake", price: 65, icon: "🧁", cat: "Sweets", special: true },
+  { id: 3, name: "Artisan Sourdough", price: 120, icon: "🍞", cat: "Breads", special: true },
   { id: 4, name: "Blueberry Muffin", price: 55, icon: "🥯", cat: "Pastry" },
   { id: 5, name: "Cutting Chai", price: 15, icon: "☕", cat: "Drinks" },
   { id: 6, name: "Veg Cheese Burger", price: 85, icon: "🍔", cat: "Snacks" },
   { id: 7, name: "Masala Dosa", price: 70, icon: "🍛", cat: "Meals" },
-  { id: 8, name: "Cold Coffee", price: 50, icon: "🥤", cat: "Drinks" }
+  { id: 8, name: "Cold Coffee", price: 50, icon: "🥤", cat: "Drinks" },
+  { id: 9, name: "Hot Coffee", price: 30, icon: "☕", cat: "Drinks" }
 ];
 
 const OPEN_TIME = { hour: 8, minute: 30 };
@@ -33,7 +34,10 @@ export default function App() {
   
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [activeOrderId, setActiveOrderId] = useState(null);
+  const [showThankYou, setShowThankYou] = useState(false);
+  const [validationError, setValidationError] = useState("");
   const [inquirySuccess, setInquirySuccess] = useState(false);
 
   // Delivery State
@@ -51,13 +55,12 @@ export default function App() {
     const userData = { name, uid };
     setCurrentUser(userData);
     localStorage.setItem('cb_user_auth', JSON.stringify(userData));
+    setIsAuthModalOpen(false);
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
     localStorage.removeItem('cb_user_auth');
-    setCart([]);
-    setActiveOrderId(null);
   };
 
   // --- Check Canteen Hours ---
@@ -90,9 +93,7 @@ export default function App() {
   const choosePath = (delivery) => {
     setIsDelivery(delivery);
     window.location.href = '#menu';
-    if (delivery) {
-      setTimeout(() => setIsCartOpen(true), 500);
-    }
+    // Removed: The automatic basket popup logic here to stay on the menu
   };
 
   // --- Cart Actions ---
@@ -103,6 +104,8 @@ export default function App() {
       if (existing) return prev.map(i => i.id === item.id ? { ...i, qty: i.qty + 1 } : i);
       return [...prev, { ...item, qty: 1 }];
     });
+    // Basket pops up only when an item is actually selected/added
+    setIsCartOpen(true);
   };
 
   const changeQty = (id, delta) => {
@@ -114,12 +117,15 @@ export default function App() {
   };
 
   const cartTotal = cart.reduce((acc, i) => acc + (i.price * i.qty), 0);
+  const discount = currentUser ? cartTotal * 0.1 : 0;
+  const deliveryFee = isDelivery && cart.length > 0 ? 20 : 0;
+  const finalTotal = cartTotal - discount + deliveryFee;
 
   // --- Place Order Logic ---
   const handlePlaceOrder = () => {
     if (cart.length === 0 || !isCanteenOpen) return;
     if (isDelivery && !deliveryLocation.trim()) {
-      alert("Please provide a delivery location within campus.");
+      setValidationError("Please enter the location");
       return;
     }
     
@@ -128,30 +134,35 @@ export default function App() {
 
     const newOrder = {
       id: orderId,
-      studentName: currentUser.name,
-      studentUid: currentUser.uid,
+      studentName: currentUser ? currentUser.name : "Guest User",
+      studentUid: currentUser ? currentUser.uid : "N/A",
       token: "CB-" + Math.floor(100 + Math.random() * 900),
       items: cart.map(i => `${i.qty}x ${i.name}`).join(', '),
-      total: `₹${(cartTotal + (isDelivery ? 20 : 0)).toFixed(2)}`,
+      total: `₹${finalTotal.toFixed(2)}`,
       status: 'received',
-      type: isDelivery ? 'Delivery' : 'Dine-in (Pickup)',
+      type: isDelivery ? 'Delivery' : 'Pickup',
       location: isDelivery ? deliveryLocation : 'Counter 01',
       estimatedTime: estimatedMinutes,
       createdAt: new Date().toISOString()
     };
 
     setOrders(prev => [newOrder, ...prev]);
-    setActiveOrderId(orderId);
     setCart([]);
     setIsCartOpen(false);
     setDeliveryLocation("");
     setIsDelivery(false);
+    
+    setShowThankYou(true);
+    setTimeout(() => {
+        setShowThankYou(false);
+        setActiveOrderId(orderId);
+    }, 2500);
 
     setTimeout(() => {
       setOrders(current => 
         current.map(o => o.id === orderId ? { ...o, status: 'preparing' } : o)
       );
-    }, 3000);
+    }, 5500);
   };
 
   const handleInquiry = (e) => {
@@ -159,8 +170,8 @@ export default function App() {
     const form = e.target;
     const newInq = {
       id: Date.now().toString(),
-      studentName: currentUser.name,
-      studentUid: currentUser.uid,
+      studentName: currentUser ? currentUser.name : "Guest",
+      studentUid: currentUser ? currentUser.uid : "Guest",
       email: form.elements['inq-email'].value,
       message: form.elements['inq-msg'].value,
       createdAt: new Date().toISOString()
@@ -184,34 +195,6 @@ export default function App() {
     return "step";
   };
 
-  // If no user is logged in, show Auth Screen
-  if (!currentUser) {
-    return (
-      <div className="auth-container">
-        <style>{`
-          .auth-container { height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #fff5f6 0%, #fef9f1 100%); font-family: 'Segoe UI', sans-serif; }
-          .auth-card { background: white; padding: 40px; border-radius: 24px; box-shadow: 0 15px 35px rgba(214, 51, 132, 0.1); width: 90%; max-width: 400px; text-align: center; }
-          .auth-card h1 { color: #d63384; margin-bottom: 10px; font-weight: 800; }
-          .auth-card p { color: #888; margin-bottom: 30px; font-size: 0.9rem; }
-          .auth-input { width: 100%; padding: 15px; margin-bottom: 15px; border-radius: 12px; border: 1px solid #eee; outline: none; box-sizing: border-box; transition: 0.3s; }
-          .auth-input:focus { border-color: #d63384; box-shadow: 0 0 0 4px rgba(214, 51, 132, 0.1); }
-          .auth-btn { width: 100%; padding: 15px; border-radius: 12px; border: none; background: #a02050; color: white; font-weight: 700; cursor: pointer; transition: 0.3s; }
-          .auth-btn:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(160, 32, 80, 0.3); }
-        `}</style>
-        <div className="auth-card">
-          <h1>CAMPUS BITES.</h1>
-          <p>Please authenticate to access the canteen</p>
-          <form onSubmit={handleAuth}>
-            <input name="userName" className="auth-input" required placeholder="Enter Full Name" />
-            <input name="userUid" className="auth-input" required placeholder="Enter College UID" />
-            <button type="submit" className="auth-btn">Enter Canteen</button>
-          </form>
-          <div style={{ marginTop: '20px', fontSize: '0.7rem', color: '#ccc' }}>Authorized Student Access Only</div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="app-root">
       <style>{`
@@ -232,28 +215,39 @@ export default function App() {
         .dot.open { background: var(--green); box-shadow: 0 0 8px var(--green); }
         .dot.closed { background: var(--red); box-shadow: 0 0 8px var(--red); }
 
-        .user-nav-info { display: flex; align-items: center; gap: 15px; font-size: 0.85rem; }
+        .user-nav-info { display: flex; align-items: center; gap: 10px; font-size: 0.85rem; }
         .logout-btn { background: none; border: 1px solid #ddd; padding: 5px 10px; border-radius: 8px; cursor: pointer; color: #888; font-size: 0.75rem; }
-        .logout-btn:hover { color: var(--red); border-color: var(--red); }
 
         /* Hero */
         .hero { display: flex; padding: 60px 5%; align-items: center; gap: 40px; min-height: 70vh; }
+        .hero-content { flex: 1; }
         .hero-content h1 { font-size: 3.5rem; line-height: 1.1; margin-bottom: 20px; color: #2d2d2d; }
         .hero-content span { color: var(--accent); }
-        .hero-img { max-width: 100%; border-radius: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); transform: rotate(2deg); }
         
+        .offer-pill { display: inline-block; background: #fff3cd; color: #856404; padding: 8px 16px; border-radius: 50px; font-weight: 800; font-size: 0.8rem; margin-bottom: 15px; border: 1px solid #ffeeba; }
+
         .hero-actions { display: flex; gap: 15px; margin-top: 30px; flex-wrap: wrap; }
-        .hero-btn { flex: 1; min-width: 200px; padding: 20px; border-radius: 15px; border: 2px solid transparent; cursor: pointer; transition: 0.3s; text-align: center; background: white; box-shadow: 0 5px 15px rgba(0,0,0,0.05); }
-        .hero-btn h4 { margin: 0 0 5px; color: var(--dark-pink); font-size: 1.1rem; }
-        .hero-btn p { margin: 0; font-size: 0.85rem; color: #888; }
-        .hero-btn:hover { border-color: var(--accent); transform: translateY(-3px); }
+        .hero-btn { flex: 1; min-width: 200px; padding: 25px; border-radius: 20px; border: 2px solid transparent; cursor: pointer; transition: 0.3s; text-align: center; background: white; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }
+        .hero-btn h4 { margin: 0 0 8px; color: var(--dark-pink); font-size: 1.25rem; }
+        .hero-btn p { margin: 0; font-size: 0.9rem; color: #888; }
+        .hero-btn:hover { border-color: var(--accent); transform: translateY(-5px); box-shadow: 0 15px 35px rgba(214, 51, 132, 0.1); }
         .hero-btn.closed { opacity: 0.6; cursor: not-allowed; }
+
+        .hero-image-container { flex: 1; position: relative; text-align: center; }
+        .hero-img { max-width: 100%; border-radius: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); transition: 0.3s; }
+        
+        /* Specials Section */
+        .specials-section { padding: 80px 5%; background: rgba(255, 255, 255, 0.5); border-radius: 40px; margin: 40px 5%; box-shadow: inset 0 0 40px rgba(214, 51, 132, 0.05); }
+        .specials-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 30px; }
+        .special-card { background: white; border-radius: 25px; overflow: hidden; display: flex; align-items: center; padding: 20px; gap: 20px; border: 2px solid var(--primary); transition: 0.3s; }
+        .special-card:hover { transform: scale(1.02); box-shadow: 0 15px 30px rgba(0,0,0,0.05); }
+        .special-icon { font-size: 3rem; }
 
         /* Grid */
         .section-title { text-align: center; margin: 60px 0 40px; }
         .menu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 25px; padding: 0 5%; }
-        .card { background: white; border-radius: var(--radius); padding: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.03); text-align: center; transition: 0.3s; border: 1px solid transparent; }
-        .card:hover { transform: translateY(-5px); border-color: var(--primary); }
+        .card { background: white; border-radius: var(--radius); padding: 25px; text-align: center; border: 1px solid transparent; transition: 0.3s; }
+        .card:hover { border-color: var(--primary); transform: translateY(-5px); }
         .card-icon { font-size: 3.5rem; margin-bottom: 15px; display: block; }
         .btn { padding: 12px 25px; border: none; border-radius: 12px; cursor: pointer; font-weight: 600; transition: 0.3s; }
         .btn-add { background: #fdf2f4; color: var(--dark-pink); width: 100%; }
@@ -261,94 +255,151 @@ export default function App() {
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .btn-primary { background: var(--dark-pink); color: white; }
 
-        /* Cart */
-        .cart-panel { position: fixed; right: -400px; top: 0; width: 350px; height: 100vh; background: white; transition: 0.4s; z-index: 200; padding: 30px; box-shadow: -10px 0 30px rgba(0,0,0,0.1); display: flex; flex-direction: column; }
+        /* Cart & Modals */
+        .cart-panel { position: fixed; right: -400px; top: 0; width: 350px; height: 100vh; background: white; transition: 0.4s; zIndex: 200; padding: 30px; box-shadow: -10px 0 30px rgba(0,0,0,0.1); display: flex; flex-direction: column; z-index: 200; }
         .cart-panel.open { right: 0; }
-        .cart-item { display: flex; justify-content: space-between; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #f9f9f9; }
-        .btn-remove { background: none; border: none; color: #ff6b6b; font-size: 0.7rem; cursor: pointer; padding: 0; margin-top: 5px; font-weight: 700; text-transform: uppercase; }
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 500; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(5px); }
+        .modal-card { background: white; padding: 40px; border-radius: 24px; width: 90%; max-width: 400px; text-align: center; position: relative; }
 
-        /* Delivery Toggle */
-        .option-toggle { display: flex; background: #f5f5f5; padding: 4px; border-radius: 10px; margin: 20px 0; }
-        .opt-btn { flex: 1; padding: 8px; border-radius: 8px; border: none; font-weight: 700; cursor: pointer; transition: 0.2s; font-size: 0.8rem; }
-        .opt-btn.active { background: white; color: var(--dark-pink); box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .auth-input { width: 100%; padding: 12px; margin-bottom: 12px; border-radius: 8px; border: 1px solid #eee; outline: none; }
+        .discount-banner { background: #d4edda; color: #155724; padding: 10px; border-radius: 10px; font-size: 0.8rem; font-weight: 700; margin-bottom: 15px; }
 
-        /* Tracker */
-        .tracker-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 300; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(5px); }
-        .tracker-card { background: white; padding: 40px; border-radius: 30px; width: 90%; max-width: 450px; text-align: center; }
         .steps { display: flex; justify-content: space-between; margin: 40px 0; position: relative; }
         .steps::before { content: ''; position: absolute; top: 20px; left: 10%; right: 10%; height: 4px; background: #f0f0f0; z-index: 1; }
         .step { position: relative; z-index: 2; width: 40px; height: 40px; background: white; border: 4px solid #f0f0f0; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #ccc; font-weight: bold; }
-        .step.active { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 15px rgba(214, 51, 132, 0.2); }
+        .step.active { border-color: var(--accent); color: var(--accent); }
         .step.completed { background: var(--accent); border-color: var(--accent); color: white; }
-        .step-label { position: absolute; top: 50px; left: 50%; transform: translateX(-50%); font-size: 0.75rem; white-space: nowrap; font-weight: 700; color: #999; }
-        .timer-badge { background: #fdf2f4; color: var(--dark-pink); padding: 10px 20px; border-radius: 12px; font-weight: 700; margin-top: 20px; display: inline-block; }
 
-        /* Admin */
-        .admin-toggle { position: fixed; bottom: 20px; left: 20px; background: #333; color: white; border: none; width: 45px; height: 45px; border-radius: 50%; cursor: pointer; z-index: 1000; opacity: 0.5; }
-        .admin-panel { position: fixed; top: 5%; left: 5%; width: 90%; height: 90%; background: white; z-index: 1001; padding: 40px; border-radius: 20px; overflow: auto; box-shadow: 0 0 50px rgba(0,0,0,0.3); }
+        /* Floating Controls Bottom Left */
+        .bottom-left-controls { position: fixed; bottom: 20px; left: 20px; display: flex; align-items: center; gap: 10px; z-index: 1000; }
+        .offer-validate-btn { background: #fff3cd; color: #856404; border: 2px solid #ffeeba; padding: 10px 20px; border-radius: 50px; cursor: pointer; font-weight: 800; font-size: 0.8rem; box-shadow: 0 4px 15px rgba(133, 100, 4, 0.15); transition: 0.3s; }
+        .offer-validate-btn:hover { background: #ffeeba; transform: translateY(-2px); }
+        .admin-toggle-btn { background: #333; color: white; border: none; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; opacity: 0.5; transition: 0.3s; }
+        .admin-toggle-btn:hover { opacity: 1; }
 
-        @media (max-width: 768px) {
-          .hero { flex-direction: column; text-align: center; }
-          .hero-content h1 { font-size: 2.8rem; }
-          .contact-hub { flex-direction: column; padding: 40px 5%; }
-        }
+        @media (max-width: 768px) { .hero { flex-direction: column; text-align: center; } .hero-image-container { margin-top: 40px; } }
       `}</style>
+
+      {/* Auth Modal */}
+      {isAuthModalOpen && (
+        <div className="modal-overlay">
+          <div className="modal-card">
+            <h2 style={{ color: 'var(--dark-pink)' }}>College Login</h2>
+            <p style={{ color: '#888', marginBottom: '20px' }}>Staff & Students get 10% OFF instantly!</p>
+            <form onSubmit={handleAuth}>
+              <input name="userName" className="auth-input" required placeholder="Full Name" />
+              <input name="userUid" className="auth-input" required placeholder="College UID" />
+              <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>Login & Claim Discount</button>
+            </form>
+            <button onClick={() => setIsAuthModalOpen(false)} style={{ background: 'none', border: 'none', marginTop: '15px', color: '#999', cursor: 'pointer' }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* Thank You Modal */}
+      {showThankYou && (
+        <div className="modal-overlay">
+          <div className="modal-card">
+            <div style={{ fontSize: '4rem', marginBottom: '10px' }}>🎉</div>
+            <h2 style={{ color: 'var(--dark-pink)', marginBottom: '10px' }}>Thank You!</h2>
+            <p style={{ color: '#888' }}>Your order has been placed successfully. Redirecting to live tracker...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Validation Error Modal */}
+      {validationError && (
+        <div className="modal-overlay" style={{ zIndex: 1000 }}>
+          <div className="modal-card" style={{ borderTop: '5px solid var(--red)' }}>
+            <div style={{ fontSize: '3rem', marginBottom: '10px' }}>📍</div>
+            <h2 style={{ color: 'var(--red)', marginBottom: '10px' }}>Wait!</h2>
+            <p style={{ color: '#4a4a4a', fontWeight: 600 }}>{validationError}</p>
+            <button 
+              className="btn btn-primary" 
+              style={{ width: '100%', marginTop: '20px', background: '#333' }} 
+              onClick={() => setValidationError("")}
+            >
+              OK, I'll add it
+            </button>
+          </div>
+        </div>
+      )}
 
       <nav>
         <div className="logo">CAMPUS BITES.</div>
-        <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
           <div className="status-badge">
             <div className={`dot ${isCanteenOpen ? 'open' : 'closed'}`}></div>
             {isCanteenOpen ? "Open" : "Closed"}
           </div>
           
-          <div className="user-nav-info">
-             <span>Hi, <strong>{currentUser.name}</strong></span>
-             <button className="logout-btn" onClick={handleLogout}>Logout</button>
-          </div>
+          {currentUser && (
+            <div className="user-nav-info">
+              <span><strong>{currentUser.name}</strong></span>
+              <button className="logout-btn" onClick={handleLogout}>Logout</button>
+            </div>
+          )}
 
-          <div onClick={() => setIsCartOpen(true)} style={{ cursor: 'pointer', background: 'var(--primary)', padding: '10px 20px', borderRadius: '30px', fontWeight: 700 }}>
-            Tray ({cart.reduce((a, c) => a + c.qty, 0)})
+          <div onClick={() => setIsCartOpen(true)} style={{ cursor: 'pointer', background: 'var(--primary)', padding: '10px 22px', borderRadius: '30px', fontWeight: 800, fontSize: '1.1rem' }}>
+            🧺 ({cart.reduce((a, c) => a + c.qty, 0)})
           </div>
         </div>
       </nav>
 
       <header className="hero">
-        <div style={{ flex: 1 }}>
-          <h1>Welcome back, <br/><span>{currentUser.name.split(' ')[0]}!</span></h1>
-          <p>Skip the long queues and pre-order your favorite campus meals. authenticated student access enabled.</p>
+        <div className="hero-content">
+          <div className="offer-pill">🔥 10% OFF FOR COLLEGE STAFF & STUDENTS</div>
+          <h1>Freshly Made, <br/><span>Loved Daily.</span></h1>
+          <p>The original campus canteen experience. Now with real-time tracking and campus-wide delivery.</p>
           
           <div className="hero-actions">
-            <div 
-              className={`hero-btn ${!isCanteenOpen ? 'closed' : ''}`} 
-              onClick={() => isCanteenOpen && choosePath(false)}
-            >
-              <h4>🏪 Dine-in / Pickup</h4>
+            <div className={`hero-btn ${!isCanteenOpen ? 'closed' : ''}`} onClick={() => isCanteenOpen && choosePath(false)}>
+              <h4>🍽️ Dine-in / Pickup</h4>
               <p>Skip the line, grab & go</p>
             </div>
-            <div 
-              className={`hero-btn ${!isCanteenOpen ? 'closed' : ''}`} 
-              onClick={() => isCanteenOpen && choosePath(true)}
-            >
+            <div className={`hero-btn ${!isCanteenOpen ? 'closed' : ''}`} onClick={() => isCanteenOpen && choosePath(true)}>
               <h4>🚴 Campus Delivery</h4>
               <p>To your block (+₹20)</p>
             </div>
           </div>
-          
-          {!isCanteenOpen && (
-             <p style={{ marginTop: '20px', color: 'var(--red)', fontWeight: 700 }}>
-               ⚠️ Canteen is currently closed. We'll be back at 08:30 AM!
-             </p>
-          )}
         </div>
-        <div style={{ flex: 1, textAlign: 'center' }}>
-          <img className="hero-img" src="https://images.unsplash.com/photo-1509440159596-0249088772ff?w=600" alt="Fresh Bakery" />
+
+        <div className="hero-image-container">
+          <img className="hero-img" src="https://images.unsplash.com/photo-1509440159596-0249088772ff?w=600" alt="Fresh Bread" />
         </div>
       </header>
 
+      {/* TODAY'S SPECIALS SECTION */}
+      <section className="specials-section">
+        <div className="section-title" style={{ marginTop: 0 }}>
+          <h2 style={{ fontSize: '2.5rem', color: 'var(--dark-pink)' }}>Today's Specials</h2>
+          <p style={{ color: '#888' }}>Handpicked favorites for a perfect campus break</p>
+        </div>
+        <div className="specials-grid">
+          {MENU_ITEMS.filter(item => item.special).map(item => (
+            <div key={item.id} className="special-card">
+              <span className="special-icon">{item.icon}</span>
+              <div style={{ flex: 1 }}>
+                <h3 style={{ margin: 0 }}>{item.name}</h3>
+                <p style={{ margin: '5px 0', fontSize: '0.9rem', color: '#888' }}>{item.cat}</p>
+                <div style={{ fontWeight: 800, color: 'var(--accent)', fontSize: '1.2rem' }}>₹{item.price.toFixed(2)}</div>
+              </div>
+              <button 
+                className="btn btn-primary" 
+                style={{ padding: '10px 15px', borderRadius: '50%' }}
+                onClick={() => addToCart(item)}
+                disabled={!isCanteenOpen}
+              >
+                +
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
+
       <section id="menu">
         <div className="section-title">
-          <h2>Our Daily Selection</h2>
+          <h2>All Selection</h2>
           <div style={{ width: '40px', height: '3px', background: 'var(--accent)', margin: '10px auto' }}></div>
         </div>
         <div className="menu-grid">
@@ -358,38 +409,16 @@ export default function App() {
               <small style={{ color: 'var(--accent)', fontWeight: 700, textTransform: 'uppercase' }}>{item.cat}</small>
               <h3 style={{ margin: '10px 0' }}>{item.name}</h3>
               <div style={{ fontWeight: 800, margin: '10px 0', fontSize: '1.2rem' }}>₹{item.price.toFixed(2)}</div>
-              <button className="btn btn-add" onClick={() => addToCart(item)} disabled={!isCanteenOpen}>
-                {isCanteenOpen ? "Add to Tray" : "Closed"}
-              </button>
+              <button className="btn btn-add" onClick={() => addToCart(item)} disabled={!isCanteenOpen}>Add to Basket</button>
             </div>
           ))}
         </div>
       </section>
 
-      <section id="contact" style={{ display: 'flex', padding: '80px 5%', gap: '50px', background: 'white', marginTop: '60px' }} className="contact-hub">
-        <div style={{ flex: 1 }}>
-          <h2 style={{ fontSize: '2rem' }}>Contact Info</h2>
-          <p style={{ color: '#888', margin: '20px 0' }}>Authorized portal for student inquiries. For club events or feedback, reach out to the canteen manager.</p>
-          <div style={{ lineHeight: 2.2 }}>
-            <div><strong>📍 Campus Location:</strong> Main Block, Ground Floor</div>
-            <div><strong>📞 Help Desk:</strong> +91 98765 43210 (Ext: 4055)</div>
-            <div><strong>⏰ Service Hours:</strong> 08:30 AM - 07:30 PM</div>
-          </div>
-        </div>
-        <form onSubmit={handleInquiry} style={{ flex: 1, background: '#fdf2f4', padding: '30px', borderRadius: '20px' }}>
-          <h3 style={{ marginBottom: '20px' }}>Manager Inquiry</h3>
-          <div style={{ marginBottom: '10px', fontSize: '0.8rem', color: '#888' }}>Sending as: {currentUser.name} ({currentUser.uid})</div>
-          <input name="inq-email" type="email" required placeholder="College Email" style={{ width: '100%', padding: '12px', marginBottom: '10px', border: '1px solid #ddd', borderRadius: '8px' }} />
-          <textarea name="inq-msg" required rows="4" placeholder="How can we assist you?" style={{ width: '100%', padding: '12px', border: '1px solid #ddd', borderRadius: '8px' }}></textarea>
-          <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '10px' }}>Send Message</button>
-          {inquirySuccess && <p style={{ color: 'green', fontWeight: 700, marginTop: '10px', textAlign: 'center' }}>✓ Message sent!</p>}
-        </form>
-      </section>
-
       {/* Cart Side Panel */}
       <div className={`cart-panel ${isCartOpen ? 'open' : ''}`}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-          <h2 style={{ margin: 0 }}>My Tray</h2>
+          <h2 style={{ margin: 0 }}>My Basket 🧺</h2>
           <span onClick={() => setIsCartOpen(false)} style={{ cursor: 'pointer', fontSize: '1.5rem' }}>✕</span>
         </div>
 
@@ -400,29 +429,35 @@ export default function App() {
 
         {isDelivery && (
           <div style={{ marginBottom: '20px' }}>
-            <label style={{ fontSize: '0.8rem', fontWeight: 700, display: 'block', marginBottom: '5px' }}>CAMPUS LOCATION</label>
+            <label style={{ fontSize: '0.8rem', fontWeight: 700, display: 'block', marginBottom: '5px' }}>DELIVERY LOCATION</label>
             <input 
               type="text" 
-              placeholder="e.g. Block A, Room 202" 
+              placeholder="e.g. Library, 2nd Floor" 
               value={deliveryLocation} 
               onChange={(e) => setDeliveryLocation(e.target.value)}
               style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #eee', outline: 'none' }}
             />
-            <small style={{ color: 'var(--accent)', fontSize: '0.7rem' }}>Delivery Fee: ₹20.00</small>
+          </div>
+        )}
+
+        {currentUser ? (
+          <div className="discount-banner">✨ 10% Member Discount Applied!</div>
+        ) : (
+          <div style={{ background: '#fff3cd', padding: '10px', borderRadius: '10px', fontSize: '0.75rem', marginBottom: '15px' }}>
+            <strong>College member?</strong> <button onClick={() => setIsAuthModalOpen(true)} style={{ background: 'none', border: 'none', color: 'var(--dark-pink)', fontWeight: 800, cursor: 'pointer', padding: 0 }}>Login now</button> to save 10% on this order.
           </div>
         )}
 
         <div style={{ flex: 1, overflowY: 'auto' }}>
-          {cart.length === 0 ? <p style={{ textAlign: 'center', color: '#ccc', marginTop: '100px' }}>Tray is empty.</p> : cart.map(item => (
-            <div key={item.id} className="cart-item">
+          {cart.length === 0 ? <p style={{ textAlign: 'center', color: '#ccc', marginTop: '100px' }}>Your basket is empty.</p> : cart.map(item => (
+            <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px' }}>
               <div>
                 <div style={{ fontWeight: 700 }}>{item.name}</div>
-                <small>₹{item.price} each</small><br/>
-                <button className="btn-remove" onClick={() => removeFromCart(item.id)}>Remove</button>
+                <button onClick={() => removeFromCart(item.id)} style={{ background: 'none', border: 'none', color: 'red', fontSize: '0.65rem', cursor: 'pointer' }}>Remove</button>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <button onClick={() => changeQty(item.id, -1)} style={{ width: '25px', height: '25px', borderRadius: '50%', border: '1px solid #eee' }}>-</button>
-                <span style={{ fontWeight: 700 }}>{item.qty}</span>
+                <span>{item.qty}</span>
                 <button onClick={() => changeQty(item.id, 1)} style={{ width: '25px', height: '25px', borderRadius: '50%', border: '1px solid #eee' }}>+</button>
               </div>
             </div>
@@ -430,105 +465,78 @@ export default function App() {
         </div>
         
         <div style={{ borderTop: '2px solid #eee', paddingTop: '20px', marginTop: '20px' }}>
-          {isDelivery && cart.length > 0 && (
-             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', marginBottom: '5px', color: '#888' }}>
-                <span>Delivery Fee</span><span>₹20.00</span>
-             </div>
-          )}
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: '1.2rem' }}>
-            <span>Total</span><span>₹{(cartTotal + (isDelivery && cart.length > 0 ? 20 : 0)).toFixed(2)}</span>
+          <div style={{ fontSize: '0.9rem', color: '#888' }}>Subtotal: ₹{cartTotal.toFixed(2)}</div>
+          {currentUser && <div style={{ fontSize: '0.9rem', color: 'green' }}>Discount (10%): -₹{discount.toFixed(2)}</div>}
+          {isDelivery && cart.length > 0 && <div style={{ fontSize: '0.9rem', color: '#888' }}>Delivery Fee: ₹20.00</div>}
+          
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: '1.2rem', marginTop: '10px' }}>
+            <span>Total</span><span>₹{finalTotal.toFixed(2)}</span>
           </div>
-          <button 
-            className="btn btn-primary" 
-            style={{ width: '100%', marginTop: '20px' }} 
-            onClick={handlePlaceOrder} 
-            disabled={cart.length === 0 || !isCanteenOpen}
-          >
-            {isCanteenOpen ? "Place Order" : "Closed"}
-          </button>
+          <button className="btn btn-primary" style={{ width: '100%', marginTop: '20px' }} onClick={handlePlaceOrder} disabled={cart.length === 0 || !isCanteenOpen}>Confirm Order</button>
         </div>
       </div>
 
-      {/* Real-time Order Tracker */}
+      {/* Tracker Overlay */}
       {activeOrderData && (
-        <div className="tracker-overlay">
-          <div className="tracker-card">
-            <h1 style={{ color: 'var(--dark-pink)', margin: '0 0 5px' }}>{activeOrderData.token}</h1>
-            <p style={{ color: '#888', fontWeight: 600 }}>LIVE TRACKER ({activeOrderData.type})</p>
-            
+        <div className="modal-overlay">
+          <div className="modal-card">
+            <h2 style={{ color: 'var(--dark-pink)', marginBottom: '5px' }}>{activeOrderData.token}</h2>
+            <p style={{ color: '#888', fontWeight: 600, fontSize: '0.8rem' }}>LIVE TRACKER</p>
             <div className="steps">
-              <div className={getStepClass(activeOrderData.status, 'received')}>1<div className="step-label">Received</div></div>
-              <div className={getStepClass(activeOrderData.status, 'preparing')}>2<div className="step-label">Preparing</div></div>
-              <div className={getStepClass(activeOrderData.status, 'ready')}>3<div className="step-label">{activeOrderData.type === 'Delivery' ? 'In Transit' : 'Ready'}</div></div>
+              <div className={getStepClass(activeOrderData.status, 'received')}>1</div>
+              <div className={getStepClass(activeOrderData.status, 'preparing')}>2</div>
+              <div className={getStepClass(activeOrderData.status, 'ready')}>3</div>
             </div>
-
-            <div className="timer-badge">
-              ⏳ Est. {activeOrderData.type === 'Delivery' ? 'Arrival' : 'Prep'} Time: {activeOrderData.estimatedTime} Mins
+            <div style={{ background: '#f8f9fa', padding: '15px', borderRadius: '12px', margin: '20px 0' }}>
+               <p style={{ margin: 0, fontWeight: 700, fontSize: '0.9rem' }}>Est. Time: {activeOrderData.estimatedTime} Mins</p>
+               <p style={{ margin: '5px 0 0', fontSize: '0.75rem', color: '#888' }}>Mode: {activeOrderData.type}</p>
             </div>
-
-            <p style={{ textAlign: 'left', background: '#f9f9f9', padding: '15px', borderRadius: '12px', fontSize: '0.85rem', marginTop: '20px' }}>
-              <strong>Student:</strong> {activeOrderData.studentName} ({activeOrderData.studentUid})<br/>
-              <strong>Location:</strong> {activeOrderData.location}<br/>
-              <strong>Items:</strong> {activeOrderData.items}
-            </p>
-            <button className="btn btn-primary" style={{ width: '100%', background: '#333', marginTop: '20px' }} onClick={() => setActiveOrderId(null)}>Close Tracker</button>
+            <button className="btn btn-primary" style={{ width: '100%', background: '#333' }} onClick={() => setActiveOrderId(null)}>Continue Browsing</button>
           </div>
         </div>
       )}
 
-      {/* Admin Panel */}
-      <button className="admin-toggle" onClick={() => setIsAdminOpen(true)}>⚙️</button>
+      {/* Floating Controls Bottom Left */}
+      <div className="bottom-left-controls">
+        {!currentUser && (
+            <button className="offer-validate-btn" onClick={() => setIsAuthModalOpen(true)}>
+                🎁 Validate 10% Offer
+            </button>
+        )}
+        <button className="admin-toggle-btn" onClick={() => setIsAdminOpen(true)}>⚙️</button>
+      </div>
+      
       {isAdminOpen && (
-        <div className="admin-panel">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
+        <div className="admin-panel" style={{ position: 'fixed', top: '5%', left: '5%', width: '90%', height: '90%', background: 'white', zIndex: 1000, padding: '40px', borderRadius: '20px', overflow: 'auto', boxShadow: '0 0 50px rgba(0,0,0,0.3)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <h2>Manager Dashboard</h2>
             <button className="btn btn-primary" onClick={() => setIsAdminOpen(false)}>Close</button>
           </div>
-          <h3>Live Orders</h3>
           <table>
-            <thead><tr><th>Token</th><th>Student Info</th><th>Items</th><th>Type / Location</th><th>Total</th><th>Status</th></tr></thead>
+            <thead><tr><th>Token</th><th>Student</th><th>Items</th><th>Mode</th><th>Total</th><th>Status</th></tr></thead>
             <tbody>
-              {orders.length === 0 ? <tr><td colSpan="6" style={{ textAlign: 'center', padding: '20px' }}>No orders yet.</td></tr> : orders.map(o => (
+              {orders.map(o => (
                 <tr key={o.id}>
-                  <td style={{ fontWeight: 800, color: 'var(--accent)' }}>{o.token}</td>
-                  <td><strong>{o.studentName}</strong><br/><small>{o.studentUid}</small></td>
-                  <td style={{ maxWidth: '150px' }}>{o.items}</td>
-                  <td>
-                    <strong>{o.type}</strong><br/>
-                    <small style={{ color: '#888' }}>{o.location}</small>
-                  </td>
+                  <td>{o.token}</td>
+                  <td>{o.studentName} ({o.studentUid})</td>
+                  <td>{o.items}</td>
+                  <td>{o.type}</td>
                   <td>{o.total}</td>
                   <td>
-                    <select value={o.status} onChange={(e) => updateStatus(o.id, e.target.value)} style={{ padding: '8px', borderRadius: '8px' }}>
+                    <select value={o.status} onChange={(e) => updateStatus(o.id, e.target.value)}>
                       <option value="received">Received</option>
                       <option value="preparing">Preparing</option>
-                      <option value="ready">{o.type === 'Delivery' ? 'In Transit' : 'Ready to Collect'}</option>
+                      <option value="ready">Ready</option>
                     </select>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-          <h3 style={{ marginTop: '40px' }}>Student Inquiries</h3>
-          <table>
-            <thead><tr><th>Student Name</th><th>UID</th><th>Email</th><th>Message</th></tr></thead>
-            <tbody>
-              {inquiries.map(i => (
-                <tr key={i.id}>
-                  <td><strong>{i.studentName}</strong></td>
-                  <td>{i.studentUid}</td>
-                  <td>{i.email}</td>
-                  <td>{i.message}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
         </div>
       )}
 
-      <footer style={{ textAlign: 'center', padding: '40px 5%', color: '#999', fontSize: '0.8rem' }}>
-        &copy; 2024 Campus Bites. Fast Pre-ordering and Delivery for Students.
-      </footer>
+      <footer style={{ textAlign: 'center', padding: '40px', color: '#999', fontSize: '0.8rem' }}>&copy; 2024 Campus Bites. Fast Pre-ordering for Students.</footer>
     </div>
   );
 }
